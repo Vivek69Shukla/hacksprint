@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relay - Chat Room</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 min-h-screen font-sans antialiased">
+
+<div class="container mx-auto px-4 py-4 sm:py-6 h-screen flex flex-col max-w-7xl">
+
+    <!-- Header with colorful gradient title -->
+    <div class="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 rounded-t-2xl sm:rounded-t-3xl p-4 sm:p-6 shadow-2xl animate-gradient">
+        <h1 class="text-3xl sm:text-4xl md:text-5xl text-center text-white font-bold tracking-wider drop-shadow-lg">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 via-pink-200 to-purple-200">
+                RELAY
+            </span>
+        </h1>
+        <p class="text-center text-white/80 text-xs sm:text-sm mt-1 sm:mt-2">Real-time messaging experience</p>
+    </div>
+
+    <!-- Main chat container -->
+    <div class="bg-gray-800/95 backdrop-blur-xl rounded-b-2xl sm:rounded-b-3xl shadow-2xl flex-1 flex flex-col overflow-hidden border-x border-b border-purple-500/30">
+
+        <!-- Username input bar -->
+        <div class="p-3 sm:p-4 bg-gray-900/50 border-b border-purple-500/20">
+            <div class="flex items-center gap-2 sm:gap-3 max-w-md mx-auto">
+                <div id="status-indicator" class="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-yellow-500 animate-pulse"></div>
+                <input
+                        type="text"
+                        id="username"
+                        placeholder="Enter your name..."
+                        class="flex-1 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-gray-700/50 text-white placeholder-gray-400 border border-purple-500/30 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm sm:text-base"
+                />
+            </div>
+        </div>
+
+        <!-- Chat messages area -->
+        <div
+                id="chat-box"
+                class="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-3 sm:space-y-4 scroll-smooth custom-scrollbar"
+        >
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center">
+                    <div class="inline-block p-3 sm:p-4 bg-purple-600/20 rounded-full mb-3 sm:mb-4 animate-bounce">
+                        <svg class="w-6 h-6 sm:w-8 sm:h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                    </div>
+                    <p class="text-purple-300 text-sm sm:text-base font-medium">Initializing Relay...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Message input area -->
+        <div class="p-3 sm:p-4 md:p-5 bg-gray-900/50 border-t border-purple-500/20">
+            <div class="flex gap-2 sm:gap-3 max-w-5xl mx-auto">
+                <input
+                        type="text"
+                        id="message"
+                        placeholder="Type your message..."
+                        class="flex-1 px-3 py-2.5 sm:px-4 sm:py-3 rounded-xl bg-gray-700/50 text-white placeholder-gray-400 border border-purple-500/30 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm sm:text-base"
+                        disabled
+                />
+                <button
+                        id="send-btn"
+                        class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-purple-500/50 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled
+                >
+                    <span class="hidden sm:inline">Send</span>
+                    <span class="sm:hidden">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let stompClient = null;
+    let currentUsername = "";
+    const chatBox = document.getElementById("chat-box");
+    const messageInput = document.getElementById("message");
+    const sendBtn = document.getElementById("send-btn");
+    const statusIndicator = document.getElementById("status-indicator");
+
+    function setStatus(status, message) {
+        if (status === 'connecting') {
+            statusIndicator.className = "w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-yellow-500 animate-pulse";
+        } else if (status === 'connected') {
+            statusIndicator.className = "w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-green-500 animate-pulse";
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+        } else if (status === 'error') {
+            statusIndicator.className = "w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-red-500";
+        }
+
+        if (message) {
+            showSystemMessage(message, status);
+        }
+    }
+
+    function showSystemMessage(message, type = 'info') {
+        const colors = {
+            info: 'purple',
+            error: 'red',
+            success: 'green'
+        };
+        const color = colors[type] || 'purple';
+
+        chatBox.innerHTML = `
+            <div class="flex items-center justify-center h-full animate-fadeIn">
+                <div class="text-center max-w-md">
+                    <div class="inline-block p-4 bg-${color}-600/20 rounded-full mb-4">
+                        <svg class="w-8 h-8 text-${color}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            ${type === 'success' ?
+                                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>' :
+                                type === 'error' ?
+                                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>' :
+                                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
+                            }
+                        </svg>
+                    </div>
+                    <p class="text-${color}-300 text-base font-medium mb-2">${message}</p>
+                    ${type === 'error' ? '<p class="text-gray-400 text-sm">Check if your WebSocket server is running at the correct endpoint.</p>' : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function connect() {
+        try {
+            setStatus('connecting', 'Connecting to Relay...');
+
+            if (typeof SockJS === 'undefined' || typeof Stomp === 'undefined') {
+                throw new Error('Required libraries not loaded');
+            }
+
+            const socket = new SockJS('/chats');
+            stompClient = Stomp.over(socket);
+
+            stompClient.debug = null; // Disable debug logging
+
+            stompClient.connect({},
+                function (frame) {
+                    console.log('Connected: ' + frame);
+                    setStatus('connected', 'Connected to Relay! Start chatting...');
+
+                    stompClient.subscribe('/topic/messages', function (messageOutput) {
+                        try {
+                            const msg = JSON.parse(messageOutput.body);
+                            showMessage(msg.sender, msg.content);
+                        } catch (e) {
+                            console.error('Error parsing message:', e);
+                        }
+                    });
+                },
+                function (error) {
+                    console.error('Connection error:', error);
+                    setStatus('error', 'Failed to connect to server');
+                }
+            );
+        } catch (error) {
+            console.error('Error initializing connection:', error);
+            setStatus('error', 'Connection Error: ' + error.message);
+        }
+    }
+
+    function sendMessage() {
+        if (!stompClient || !stompClient.connected) {
+            showSystemMessage('Not connected to server', 'error');
+            return;
+        }
+
+        const usernameInput = document.getElementById("username").value.trim();
+        currentUsername = usernameInput || "Anonymous";
+        const message = messageInput.value.trim();
+
+        if (message === "") return;
+
+        try {
+            stompClient.send("/app/SendMessages", {}, JSON.stringify({
+                sender: currentUsername,
+                content: message
+            }));
+            messageInput.value = "";
+        } catch (error) {
+            console.error('Error sending message:', error);
+            showSystemMessage('Failed to send message', 'error');
+        }
+    }
+
+    function showMessage(sender, content) {
+        // Remove welcome message if it exists
+        if (chatBox.querySelector('.justify-center')) {
+            chatBox.innerHTML = '';
+        }
+
+        const isOwnMessage = sender === currentUsername;
+        const msgContainer = document.createElement("div");
+        msgContainer.classList.add("animate-slideIn", "flex", isOwnMessage ? "justify-end" : "justify-start");
+
+        const msgElement = document.createElement("div");
+        msgElement.classList.add(
+            "max-w-[85%]", "sm:max-w-[75%]", "md:max-w-[60%]", "lg:max-w-[50%]",
+            "rounded-2xl", "p-3", "sm:p-4", "shadow-lg", "transform", "transition-all",
+            "hover:scale-[1.02]", "break-words"
+        );
+
+        if (isOwnMessage) {
+            msgElement.classList.add(
+                "bg-gradient-to-r", "from-purple-600", "to-pink-600",
+                "text-white", "rounded-br-none"
+            );
+            msgElement.innerHTML = `
+                <p class="text-xs sm:text-sm font-semibold mb-1 opacity-90">You</p>
+                <p class="text-sm sm:text-base leading-relaxed">${escapeHtml(content)}</p>
+                <p class="text-xs mt-1 opacity-70 text-right">${getCurrentTime()}</p>
+            `;
+        } else {
+            msgElement.classList.add(
+                "bg-gray-700/80", "backdrop-blur-sm",
+                "text-white", "border", "border-purple-500/20", "rounded-bl-none"
+            );
+            msgElement.innerHTML = `
+                <p class="text-xs sm:text-sm font-semibold mb-1 text-purple-300">${escapeHtml(sender)}</p>
+                <p class="text-sm sm:text-base leading-relaxed">${escapeHtml(content)}</p>
+                <p class="text-xs mt-1 opacity-60">${getCurrentTime()}</p>
+            `;
+        }
+
+        msgContainer.appendChild(msgElement);
+        chatBox.appendChild(msgContainer);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function getCurrentTime() {
+        const now = new Date();
+        return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !messageInput.disabled) sendMessage();
+    });
+
+    // Initialize connection
+    window.addEventListener('load', () => {
+        setTimeout(connect, 100);
+    });
+</script>
+
+<style>
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @keyframes gradient {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    .animate-slideIn {
+        animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .animate-fadeIn {
+        animation: fadeIn 0.6s ease-out;
+    }
+
+    .animate-gradient {
+        background-size: 200% 200%;
+        animation: gradient 3s ease infinite;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: linear-gradient(to bottom, #9333ea, #ec4899);
+        border-radius: 10px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(to bottom, #7e22ce, #db2777);
+    }
+
+    @media (max-width: 640px) {
+        .container {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+    }
+</style>
+
+</body>
+</html>
